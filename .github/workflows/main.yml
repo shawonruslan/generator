@@ -252,6 +252,25 @@ jobs:
             exit 1
           fi
 
+          # Wait until the tunnel is registered AND the public URL really answers.
+          # Opening the link too early makes browsers/ISPs cache "DNS not found".
+          echo 'Waiting for the public link to go live (up to 3 minutes)...'
+          LIVE=false
+          for attempt in $(seq 1 36); do
+            if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then break; fi
+            if grep -q 'Registered tunnel connection' "$RUNNER_TEMP/cloudflared.log"; then
+              CODE=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+                --max-time 15 --doh-url https://1.1.1.1/dns-query "$PUBLIC_URL" || true)
+              if [[ "$CODE" =~ ^(2|3) ]]; then LIVE=true; break; fi
+            fi
+            sleep 5
+          done
+          if [[ "$LIVE" != true ]]; then
+            echo '::error::The Cloudflare link never became reachable. Re-run the workflow.'
+            tail -n 40 "$RUNNER_TEMP/cloudflared.log"
+            exit 1
+          fi
+
           echo "Open Remotion Studio: $PUBLIC_URL"
           {
             echo '## Remotion Studio'
